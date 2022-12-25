@@ -1,0 +1,198 @@
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.{VectorAssembler}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{RegressionEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{DoubleType}
+import org.apache.spark.ml.linalg.{Matrix, Vectors}
+import org.apache.spark.ml.stat.Correlation
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.{VectorAssembler, StringIndexer}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{MulticlassClassificationEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{IntegerType, DoubleType}
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.DataTypes._;
+import org.apache.spark.mllib.classification.{NaiveBayes, NaiveBayesModel}
+import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.ml.classification.BinaryLogisticRegressionSummary
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.mllib.linalg.DenseVector
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.ml.classification.NaiveBayes
+import org.apache.spark.ml.param.shared.{HasCollectSubModels, HasParallelism}
+val data_nikhilesh = spark.read.format("csv").option("inferSchema", "true").option("header", "true").load("hdfs://10.128.0.19/BigData/cancer.csv")
+var df_cacner_nikhilesh = data_nikhilesh
+df_cacner_nikhilesh.printSchema
+df_cacner_nikhilesh.groupBy(col("UofCSize")).count().show
+df_cacner_nikhilesh.groupBy(col("UofCShape")).count().show
+df_cacner_nikhilesh.groupBy(col("Marginal Adhesion")).count().show
+df_cacner_nikhilesh.groupBy(col("SECSize")).count().show
+df_cacner_nikhilesh.groupBy(col("Bare Nuclei")).count().show
+df_cacner_nikhilesh.groupBy(col("Bland Chromatin")).count().show
+df_cacner_nikhilesh.groupBy(col("Mitoses")).count().show
+df_cacner_nikhilesh.groupBy(col("Normal Nucleoli")).count().show
+df_cacner_nikhilesh.stat.crosstab("UofCSize","Class").show()
+df_cacner_nikhilesh.stat.crosstab("UofCShape","Class").show()
+df_cacner_nikhilesh.stat.crosstab("Marginal Adhesion","Class").show()
+df_cacner_nikhilesh.stat.crosstab("SECSize","Class").show()
+df_cacner_nikhilesh.stat.crosstab("Bare Nuclei","Class").show()
+df_cacner_nikhilesh.stat.crosstab("Bland Chromatin","Class").show()
+df_cacner_nikhilesh.stat.crosstab("Mitoses","Class").show()
+df_cacner_nikhilesh.stat.crosstab("Normal Nucleoli","Class").show()
+println("Correlation between UofCSize and Class: "+df_cacner_nikhilesh.stat.corr("UofCSize", "Class", "pearson").toString
+	+"\nCorrelation between UofCShape and Class: "+df_cacner_nikhilesh.stat.corr("UofCShape", "Class", "pearson").toString+
+	"\nCorrelation between Marginal Adhesion and Class: "+df_cacner_nikhilesh.stat.corr("Marginal Adhesion", "Class", "pearson").toString+
+	"\nCorrelation between SECSize and Class: "+df_cacner_nikhilesh.stat.corr("SECSize", "Class", "pearson").toString+
+	"\nCorrelation between Bare Nuclei and Class: "+df_cacner_nikhilesh.stat.corr("Bare Nuclei", "Class", "pearson").toString+
+	"\nCorrelation between Mitoses and Class: "+df_cacner_nikhilesh.stat.corr("Mitoses", "Class", "pearson").toString+
+	"\nCorrelation between Normal Nucleoli and Class: "+df_cacner_nikhilesh.stat.corr("Normal Nucleoli", "Class", "pearson").toString)
+val assembler_cancer_nikhilesh = new VectorAssembler().setInputCols(Array("Clump Thickness","UofCSize","UofCShape","Marginal Adhesion","SECSize","Bare Nuclei","Bland Chromatin","Normal Nucleoli","Mitoses","Class")).setOutputCol("features")
+val indexer_nikhilesh = new StringIndexer().setInputCol("Class").setOutputCol("label")
+val Array(training, test) = df_cacner_nikhilesh.randomSplit(Array(0.7, 0.3))
+val logistic_nikhilesh = new LogisticRegression().setMaxIter(10).setLabelCol("label").setFeaturesCol("features")
+val evaluator_nikhilesh = new BinaryClassificationEvaluator().setLabelCol("label").setRawPredictionCol("rawPrediction").setMetricName("areaUnderROC")
+val evaluator_nikhilesh = new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("accuracy")
+val MaxIter1: Seq[Int] = Seq(10)
+val RegParam1: Seq[Double] = Seq(0.001)
+val ElasticNetParam1: Seq[Double] = Seq(0.001)
+val tolerance: Seq[Double] = Seq(1e-6)
+val RegParam_Array = Array(0.1,0.2,0.3)
+val MaxIter_Array = Array(10,20,30,40)
+val pipeline_nikhilesh = new Pipeline()
+  .setStages(Array(assembler_cancer_nikhilesh,indexer_nikhilesh, logistic_nikhilesh))
+for (RegParam1 <- RegParam_Array)
+  for(MaxIter1 <- MaxIter_Array)
+  {
+val paramGrid_nikhilesh = new ParamGridBuilder().addGrid(logistic_nikhilesh.regParam, Array(RegParam1))
+  .addGrid(logistic_nikhilesh.elasticNetParam, ElasticNetParam1)
+  .addGrid(logistic_nikhilesh.tol, tolerance)
+  .addGrid(logistic_nikhilesh.maxIter, Array(MaxIter1)).build()
+val cross_validator_nikhilesh = new CrossValidator()
+.setEstimatorParamMaps(paramGrid_nikhilesh)
+  .setEstimator(pipeline_nikhilesh)
+  .setEvaluator(evaluator_nikhilesh)
+  .setNumFolds(5)
+val cvModel_nikhilesh = cross_validator_nikhilesh.fit(training)
+val predictions_nikhilesh = cvModel_nikhilesh.transform(test)
+val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+println("RegParam: ":+RegParam1+" MaxIter: "+MaxIter1.toString)
+println("best accuracy of the model is :"+(accuracy_nikhilesh*100))
+}
+val paramGrid_nikhilesh = new ParamGridBuilder().addGrid(logistic_nikhilesh.regParam, Array(0.1))
+  .addGrid(logistic_nikhilesh.elasticNetParam, ElasticNetParam1)
+  .addGrid(logistic_nikhilesh.tol, tolerance)
+  .addGrid(logistic_nikhilesh.maxIter, Array(10)).build()
+val cross_validator_nikhilesh = new CrossValidator()
+.setEstimatorParamMaps(paramGrid_nikhilesh)
+  .setEstimator(pipeline_nikhilesh)
+  .setEvaluator(evaluator_nikhilesh)
+  .setNumFolds(5)
+val cvModel_nikhilesh = cross_validator_nikhilesh.fit(training)
+val predictions_nikhilesh = cvModel_nikhilesh.transform(test)
+val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+println("best accuracy of the model is :"+(accuracy_nikhilesh*100))
+//for some weird reason it was not getting build, so I had to use .build() here to convert paramgrid to array of parammap
+//assumed datatype would be wrong
+/*
+var df_cacner_nikhilesh = data_nikhilesh
+.withColumn("Clump Thickness",col("Clump Thickness").cast("int"))
+.withColumn("UofCSize",col("UofCSize").cast("int"))
+.withColumn("UofCShape",col("UofCShape").cast("int"))
+.withColumn("Marginal Adhesion",col("Marginal Adhesion").cast("int"))
+.withColumn("SECSize",col("SECSize").cast("int"))
+.withColumn("Bare Nuclei",col("Bare Nuclei").cast("int"))
+.withColumn("Bland Chromatin",col("Bland Chromatin").cast("int"))
+.withColumn("Normal Nucleoli",col("Normal Nucleoli").cast("int"))
+.withColumn("Mitoses",col("Mitoses").cast("int")).withColumn("Class",col("Class").cast("int"))
+*/
+// val assembler_cancer_nikhilesh = new VectorAssembler().setInputCols(Array("Clump Thickness","UofCSize")).setOutputCol("features")
+
+// var cancer_nikhilesh = assembler_cancer_nikhilesh.transform(df_cacner_nikhilesh)
+
+
+// val final_cancer_nikhilesh =  indexer_nikhilesh.fit(cancer_nikhilesh).transform(cancer_nikhilesh)
+// val Row = Correlation.corr(final_cancer_nikhilesh, "features", "pearson").head
+// println("pearson correlation matrix:\n" + coeff2.toString)
+
+
+// val Array(training, test) = final_cancer_nikhilesh.randomSplit(Array(0.6, 0.4))
+
+
+// val logistic_model_nikhilesh = logistic_nikhilesh.fit(training) 
+
+// val predictions_nikhilesh = logistic_model_nikhilesh.transform(test)
+
+// predictions_nikhilesh.show
+
+// randomRandomForestClassifier
+// // val randomForestModel_nikhilesh = new RandomForestClassifier()
+// //  .setFeaturesCol("features")
+// //  .setLabelCol("label")
+// //  .setSeed(745)
+// // val pipeline_nikhilesh = new Pipeline()
+// //   .setStages(Array(assembler_cancer_nikhilesh, randomForestModel_nikhilesh))
+// // val paramGrid_nikhilesh = new ParamGridBuilder()  
+// //   .addGrid(randomForestModel_nikhilesh.maxDepth, Array(2,3,4,5))
+// //   .addGrid(randomForestModel_nikhilesh.impurity, Array("entropy","gini")).build()
+// // val cross_validator_nikhilesh = new CrossValidator()
+// //   .setEstimator(pipeline_nikhilesh)
+// //   .setEvaluator(evaluator_nikhilesh)
+// //   .setEstimatorParamMaps(paramGrid_nikhilesh)
+// //   .setNumFolds(4)
+
+
+// // val cvModel_nikhilesh = cross_validator_nikhilesh.fit(training)
+// // val predictions_nikhilesh = cvModel_nikhilesh.transform(test)
+// // val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+// // val cvModel_nikhilesh = cross_validator_nikhilesh.fit(trainingData)
+// // val predictions_nikhilesh = cvModel_nikhilesh.transform(testData)
+// // val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+
+/*
+
+Naive Bayes
+
+
+val model_naive_bayes_nikhilesh = new NaiveBayes().fit("training")
+val predictions__naive_bayes_nikhilesh = model_naive_bayes_nikhilesh.transform(test)
+val evaluator_naive_nikhilesh = new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("accuracy")
+val accuracy_naive_nikhilesh = evaluator_naive_nikhilesh.evaluate(predictions__naive_bayes_nikhilesh)
+val evaluator_naive_nikhilesh = new BinaryClassificationEvaluator()
+  .setLabelCol("label")
+  .setMetricName("areaUnderROC")
+val accuracy_naive_nikhilesh = evaluator_naive_nikhilesh.evaluate(predictions__naive_bayes_nikhilesh)
+val evaluator_naive_nikhilesh = new BinaryClassificationEvaluator()
+  .setLabelCol("label")
+  .setMetricName("areaUnderPR")
+val accuracy_naive_nikhilesh = evaluator_naive_nikhilesh.evaluate(predictions__naive_bayes_nikhilesh)
+
+// */
+// check the results of all the models
+// // # (It takes a long time)
+// // tvs = TrainValidationSplit(
+// //   estimator=pipeline,
+// //   estimatorParamMaps=paramGrid,
+// //   evaluator=MulticlassClassificationEvaluator(labelCol="ARR_DEL15", predictionCol="prediction"),
+// //   trainRatio=0.8)  # data is separated by 80% and 20%, in which the former is used for training and the latter for evaluation
+// // model = tvs.fit(df)
+// // # View all results (accuracy) by each params
+// // list(zip(model.validationMetrics, model.getEstimatorParamMaps()))

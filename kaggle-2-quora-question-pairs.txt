@@ -1,0 +1,167 @@
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.{VectorAssembler}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{RegressionEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{DoubleType}
+import org.apache.spark.ml.linalg.{Matrix, Vectors}
+import org.apache.spark.ml.stat.Correlation
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.{VectorAssembler, StringIndexer}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{MulticlassClassificationEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{IntegerType, DoubleType}
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.DataTypes._;
+import org.apache.spark.mllib.classification.{NaiveBayes, NaiveBayesModel}
+import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.ml.classification.BinaryLogisticRegressionSummary
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.mllib.linalg.DenseVector
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.ml.classification.NaiveBayes;
+import org.apache.spark.ml.feature.Tokenizer;
+import org.apache.spark.ml.param.shared.{HasCollectSubModels, HasParallelism}
+import org.apache.commons.lang3.StringUtils;
+import org.apache.spark.ml.feature.{RegexTokenizer, StopWordsRemover, CountVectorizer, NGram, IDF, VectorAssembler}
+import scala.collection.mutable.WrappedArray
+val quora_nikhilesh = spark.read.format("csv").option("inferSchema", "true").option("header", "true").load("hdfs://10.128.0.19/quora/train.csv")
+println("number of rows: \n"+quora_nikhilesh.count().toString)
+var q_nikhilesh = quora_nikhilesh.withColumn("id",col("id").cast("int")).withColumn("qid1",col("qid1").cast("int")).withColumn("qid2",col("qid2").cast("int")).withColumn("is_duplicate",col("is_duplicate").cast("int"))
+print(q_nikhilesh.filter(col("question1").isNull || col("question1")=== "").count())
+ q_nikhilesh.filter(q_nikhilesh("question1").isNull).show(false)
+ q_nikhilesh.filter(q_nikhilesh("question2").isNull).show(false)
+ q_nikhilesh = q_nikhilesh.na.drop()
+println("number of rows after removing duplicates:\n"+q_nikhilesh.count().toString)
+print(q_nikhilesh.filter(col("question1").isNull || col("question1")=== "").count())
+ q_nikhilesh.filter(q_nikhilesh("question1").isNull).show(false)
+ q_nikhilesh.filter(q_nikhilesh("question2").isNull).show(false)
+ q_nikhilesh.filter(q_nikhilesh("id").isNull).show(false)
+ q_nikhilesh.filter(q_nikhilesh("is_duplicate").isNull).show(false)
+val check = udf((colValue: String) => {
+  StringUtils.stripAccents(colValue)
+})
+val check_special = udf((colValue: String) => {
+  colValue.replaceAll("[^a-zA-Z0-9]/g", "");
+})
+val q_nikhilesh_1 = q_nikhilesh.select(col("is_duplicate"),col("qid2"),col("qid1"),col("id"),check_special(col("question2")).as("question_2"),check_special(col("question1")).as("question_1"))
+var final_df_nikhilesh = q_nikhilesh_1.select(col("qid2"),col("qid1"),col("id"),check(col("question_1")).as("Q1"),check(col("question_2")).as("Q2"),col("is_duplicate")).drop("question_2","question_1")
+val tokenizer_nikhilesh_1 = new Tokenizer()
+ .setInputCol("Q1")
+ .setOutputCol("filtered1")
+val tokenizer_nikhilesh_2 = new Tokenizer()
+ .setInputCol("Q2")
+ .setOutputCol("filtered_2")
+val remover_nikhilesh_1 = new StopWordsRemover()
+ .setInputCol("filtered1")
+ .setOutputCol("filtered_q1")
+val remover_nikhilesh_2 = new StopWordsRemover()
+ .setInputCol("filtered_2")
+ .setOutputCol("filtered_q2")
+val pipeline_nikhilesh = new Pipeline().setStages(Array(tokenizer_nikhilesh_1, tokenizer_nikhilesh_2, remover_nikhilesh_1, remover_nikhilesh_2))
+val model_nikhilesh = pipeline_nikhilesh.fit(final_df_nikhilesh)
+val df_q_nikhilesh = model_nikhilesh.transform(final_df_nikhilesh)
+df_q_nikhilesh.printSchema
+val getRatio_bw_question = udf((q1_nikhilesh: WrappedArray[String], q2_nikhilesh: WrappedArray[String]) => {
+      if (q1_nikhilesh.isEmpty && q2_nikhilesh.isEmpty) Vectors.dense(0.0, 0.0)
+      else {
+        val shared_q1_nikhilesh = q1_nikhilesh.toArray.filter(word => q2_nikhilesh.contains(word))
+        val shared_q2_nikhilesh = q2_nikhilesh.toArray.filter(word => q1_nikhilesh.contains(word))
+        val ratio = (shared_q1_nikhilesh.length.toDouble + shared_q2_nikhilesh.length.toDouble) / (q1_nikhilesh.length.toDouble + q2_nikhilesh.length.toDouble)
+        Vectors.dense(ratio, shared_q1_nikhilesh.length.toDouble)
+      }
+    })
+var trainDF_nikhilesh = df_q_nikhilesh
+trainDF_nikhilesh = trainDF_nikhilesh.drop("filtered1","filtered_2")
+trainDF_nikhilesh = trainDF_nikhilesh.withColumn("word_match_ratio", getRatio_bw_question(df_q_nikhilesh("filtered_q1"), df_q_nikhilesh("filtered_q2"))).withColumn("label",col("is_duplicate"))
+
+trainDF_nikhilesh.groupBy(col("is_duplicate")).count().show()
+trainDF_nikhilesh.groupBy(col("label")).count().show()
+trainDF_nikhilesh = trainDF_nikhilesh.filter(col("label") === 0 ||col("label") ===1 )
+val Array(training, test) = trainDF_nikhilesh.randomSplit(Array(0.7, 0.3))
+val rF_nikhilesh = new RandomForestClassifier()
+      .setLabelCol("label")
+      .setFeaturesCol("word_match_ratio")
+      .setNumTrees(10)
+ val paramGrid_nikhilesh = new ParamGridBuilder()  
+  .addGrid(rF_nikhilesh.maxDepth, Array(3,4,6))
+  .addGrid(rF_nikhilesh.maxBins, Array(32,33,34,35))
+  .addGrid(rF_nikhilesh.impurity, Array("entropy","gini")).build()
+val evaluator_nikhilesh = new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("accuracy")
+val pipeline_nikhilesh_quora = new Pipeline()
+  .setStages(Array(rF_nikhilesh))
+val cross_validator_nikhilesh = new CrossValidator()
+.setEstimator(pipeline_nikhilesh_quora)
+  .setEvaluator(evaluator_nikhilesh)
+  .setEstimatorParamMaps(paramGrid_nikhilesh)
+  .setNumFolds(4).setCollectSubModels(true)
+val cvModel_nikhilesh = cross_validator_nikhilesh.fit(training)
+val predictions_nikhilesh = cvModel_nikhilesh.transform(test)
+val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+println("accuracy of the model is :"+(accuracy_nikhilesh*100))
+
+// https://stackoverflow.com/a/19794953
+// q_nikhilesh = q_nikhilesh.select(col("question1"),check(col("question1"))).show(false)
+
+// q_nikhilesh = q_nikhilesh.select(col("question2"),check(col("question2"))).show(false)
+
+// q_nikhilesh = q_nikhilesh.select(col("question1"),check_special(col("question1"))).show(false)
+
+// q_nikhilesh = q_nikhilesh.select(col("question2"),check_special(col("question2"))).show(false)
+// str.replaceAll("[^a-zA-Z0-9]", "");  
+
+//Remove common words like is, a etc.
+
+//Bigram - make words pair
+
+
+// val MaxIter1: Seq[Int] = Seq(1000)
+// val RegParam1: Seq[Double] = Seq(0.001)
+// val ElasticNetParam1: Seq[Double] = Seq(0.001)
+// val tolerance: Seq[Double] = Seq(1e-6)
+
+// val paramGrid_nikhilesh = new ParamGridBuilder()  
+//   .addGrid(logistic_nikhilesh.regParam, RegParam1)
+//   .addGrid(logistic_nikhilesh.elasticNetParam, ElasticNetParam1)
+//   .addGrid(logistic_nikhilesh.tol, tolerance)
+//   .addGrid(logistic_nikhilesh.maxIter, MaxIter1).build()
+// val contractions = {"ain't":"am not / are not / is not / has not / have not","aren't":"are not / am not","can't":"cannot","can't've":"cannot have","'cause":"because","could've":"could have","couldn't":"could not","couldn't've":"could not have","didn't":"did not","doesn't":"does not","don't":"do not","hadn't":"had not","hadn't've":"had not have","hasn't":"has not","haven't":"have not","he'd":"he had / he would","he'd've":"he would have","he'll":"he shall / he will","he'll've":"he shall have / he will have","he's":"he has / he is","how'd":"how did","how'd'y":"how do you","how'll":"how will","how's":"how has / how is / how does","I'd":"I had / I would","I'd've":"I would have","I'll":"I shall / I will","I'll've":"I shall have / I will have","I'm":"I am","I've":"I have","isn't":"is not","it'd":"it had / it would","it'd've":"it would have","it'll":"it shall / it will","it'll've":"it shall have / it will have","it's":"it has / it is","let's":"let us","ma'am":"madam","mayn't":"may not","might've":"might have","mightn't":"might not","mightn't've":"might not have","must've":"must have","mustn't":"must not","mustn't've":"must not have","needn't":"need not","needn't've":"need not have","o'clock":"of the clock","oughtn't":"ought not","oughtn't've":"ought not have","shan't":"shall not","sha'n't":"shall not","shan't've":"shall not have","she'd":"she had / she would","she'd've":"she would have","she'll":"she shall / she will","she'll've":"she shall have / she will have","she's":"she has / she is","should've":"should have","shouldn't":"should not","shouldn't've":"should not have","so've":"so have","so's":"so as / so is","that'd":"that would / that had","that'd've":"that would have","that's":"that has / that is","there'd":"there had / there would","there'd've":"there would have","there's":"there has / there is","they'd":"they had / they would","they'd've":"they would have","they'll":"they shall / they will","they'll've":"they shall have / they will have","they're":"they are","they've":"they have","to've":"to have","wasn't":"was not","we'd":"we had / we would","we'd've":"we would have","we'll":"we will","we'll've":"we will have","we're":"we are","we've":"we have","weren't":"were not","what'll":"what shall / what will","what'll've":"what shall have / what will have","what're":"what are","what's":"what has / what is","what've":"what have","when's":"when has / when is","when've":"when have","where'd":"where did","where's":"where has / where is","where've":"where have","who'll":"who shall / who will","who'll've":"who shall have / who will have","who's":"who has / who is","who've":"who have","why's":"why has / why is","why've":"why have","will've":"will have","won't":"will not","won't've":"will not have","would've":"would have","wouldn't":"would not","wouldn't've":"would not have","y'all":"you all","y'all'd":"you all would","y'all'd've":"you all would have","y'all're":"you all are","y'all've":"you all have","you'd":"you had / you would","you'd've":"you would have","you'll":"you shall / you will","you'll've":"you shall have / you will have","you're":"you are","you've":"you have"}
+
+
+// val ngram_nikhilesh = new NGram()
+//  .setN(2)
+//  .setInputCol("filtered_q1")
+//  .setOutputCol("ngram-1")
+
+// val ngram_nikhilesh = new NGram()
+//  .setN(2)
+//  .setInputCol("filtered_q2")
+//  .setOutputCol("ngram-2")
+
+// val CV_nikhilesh_1: CountVectorizer = new CountVectorizer()
+//  .setInputCol("ngram-1")
+//  .setOutputCol("ngram-1-features")
+
+// val CV_nikhilesh: CountVectorizer = new CountVectorizer()
+//  .setInputCol("ngram-2")
+//  .setOutputCol("ngram-2-features")
+
+
+
+
+

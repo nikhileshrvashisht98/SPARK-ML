@@ -1,0 +1,177 @@
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.{VectorAssembler}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{RegressionEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{DoubleType}
+import org.apache.spark.ml.linalg.{Matrix, Vectors}
+import org.apache.spark.ml.stat.Correlation
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.{VectorAssembler, StringIndexer}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{MulticlassClassificationEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{IntegerType, DoubleType}
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.DataTypes._;
+import org.apache.spark.mllib.classification.{NaiveBayes, NaiveBayesModel}
+import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.ml.classification.BinaryLogisticRegressionSummary
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.mllib.linalg.DenseVector
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.ml.classification.NaiveBayes;
+import org.apache.spark.ml.feature.Tokenizer;
+import org.apache.spark.ml.param.shared.{HasCollectSubModels, HasParallelism}
+import org.apache.commons.lang3.StringUtils;
+import org.apache.spark.ml.feature.{RegexTokenizer, StopWordsRemover, CountVectorizer, NGram, IDF, VectorAssembler}
+import scala.collection.mutable.WrappedArray
+import org.apache.spark.ml.classification.{LinearSVC}
+import org.apache.spark.ml.classification.{DecisionTreeClassifier, DecisionTreeClassificationModel}
+val first_dataframe_twitter_nikhilesh = spark.read.format("csv").option("inferSchema", "true").option("header", "true").load("hdfs://10.128.0.19/twitter_sentiment_analysis/train.csv")
+println("number of rows: \n"+first_dataframe_twitter_nikhilesh.count().toString)
+first_dataframe_twitter_nikhilesh.groupBy(col("sentiment")).count().show
+
+first_dataframe_twitter_nikhilesh.filter(first_dataframe_twitter_nikhilesh("text").isNull).show(false)
+
+println(first_dataframe_twitter_nikhilesh.filter(first_dataframe_twitter_nikhilesh("text").isNull || col("text")==="").count())
+ println(first_dataframe_twitter_nikhilesh.filter(first_dataframe_twitter_nikhilesh("selected_text").isNull || col("selected_text")==="").count())
+ val df_2_nikhilesh = first_dataframe_twitter_nikhilesh.na.drop()
+ val check = udf((colValue: String) => {
+  StringUtils.stripAccents(colValue)
+})
+val check_special = udf((colValue: String) => {
+  colValue.replaceAll("[^\\p{Alpha}\\p{Digit} ]+",""); 
+})
+var df_3_nikhilesh = df_2_nikhilesh.select(col("textID"),check_special(col("text")).as("text_special"),check_special(col("selected_text")).as("selected_text_special"),col("sentiment"))
+df_3_nikhilesh.show(5)
+df_3_nikhilesh.printSchema
+df_3_nikhilesh = df_3_nikhilesh.select(col("textID"),check(col("text_special")).as("tweet_text_final"),check(col("selected_text_special")).as("selected_text_final"),col("sentiment"))
+df_3_nikhilesh.show(5)
+val df_4_nikhilesh = df_3_nikhilesh.select(col("textID"), col("tweet_text_final"),col("sentiment"), col("selected_text_final"),row_number().over(Window.partitionBy("sentiment").orderBy(col("sentiment"))).alias("sentiment_2"))
+val indexer_nikhilesh = new StringIndexer().setInputCol("sentiment").setOutputCol("label")
+val df_5_nikhilesh = indexer_nikhilesh.fit(df_4_nikhilesh).transform(df_4_nikhilesh)
+df_5_nikhilesh.groupBy(col("label"),col("sentiment")).count().show
+val tokenizer_nikhilesh = new RegexTokenizer()
+ .setPattern("[a-zA-Z']+")
+ .setGaps(false)
+ .setInputCol("tweet_text_final")
+ .setOutputCol("words")
+val remover_nikhilesh = new StopWordsRemover()
+ .setInputCol("words")
+ .setOutputCol("filtered")
+val ngram_nikhilesh = new NGram()
+ .setN(2)
+ .setInputCol("filtered")
+ .setOutputCol("ngram-2")
+val cv2_nikhilesh: CountVectorizer = new CountVectorizer()
+ .setInputCol("ngram-2")
+ .setOutputCol("ngram-2-features")
+val cv2idf_nikhilesh = new IDF()
+ .setInputCol("ngram-2-features")
+ .setOutputCol("cv2-idf-features")
+val randomForestModel_nikhilesh = new RandomForestClassifier()
+ .setFeaturesCol("cv2-idf-features")
+ .setLabelCol("label")
+val pipeline_nikhilesh = new Pipeline()
+  .setStages(Array(tokenizer_nikhilesh, remover_nikhilesh, ngram_nikhilesh, cv2_nikhilesh, cv2idf_nikhilesh,randomForestModel_nikhilesh))
+val paramGrid_nikhilesh = new ParamGridBuilder()  
+  .addGrid(randomForestModel_nikhilesh.maxDepth, Array(3,4,5))
+  .addGrid(randomForestModel_nikhilesh.maxBins, Array(32,33,34,35))
+  .addGrid(randomForestModel_nikhilesh.impurity, Array("entropy","gini")).build()
+val evaluator_nikhilesh = new MulticlassClassificationEvaluator()
+ .setLabelCol("label")
+ .setPredictionCol("prediction")
+ .setMetricName("accuracy")
+val cross_validator_nikhilesh = new CrossValidator()
+ .setEstimator(pipeline_nikhilesh)
+ .setEvaluator(evaluator_nikhilesh)
+ .setEstimatorParamMaps(paramGrid_nikhilesh)
+ .setNumFolds(3) 
+ val Array(trainingData, testData) = df_5_nikhilesh.randomSplit(Array(0.8, 0.2), 754) 
+val model_nikhilesh = cross_validator_nikhilesh.fit(trainingData)
+val predictions_nikhilesh = model_nikhilesh.transform(testData)
+val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+
+/*
++---------+-----+
+|sentiment|count|
++---------+-----+
+| positive| 8582|
+|     null|    2|
+|  neutral|11118|
+| negative| 7779|
++---------+-----+
+*/
+// first_dataframe_twitter_nikhilesh.groupBy(col("text")).count().show
+// first_dataframe_twitter_nikhilesh.groupBy(col("selected_text")).count().show
+//https://stackoverflow.com/questions/4283351/how-to-replace-special-characters-in-a-string
+// root
+//  |-- textID: string (nullable = true)
+//  |-- text_special: string (nullable = true)
+//  |-- selected_text_special: string (nullable = true)
+//  |-- sentiment: string (nullable = true
+// .withColumn("sentiment_numerical", when(col("sentiment") === "positive", 1).otherwise(when(col("negative") === "negative", 2).otherwise(0)))
+
+/*
++-----+---------+-----+
+|label|sentiment|count|
++-----+---------+-----+
+|  0.0|  neutral|11117|
+|  1.0| positive| 8582|
+|  2.0| negative| 7779|
++-----+---------+-----+
+*/
+// df_4_nikhilesh.groupBy(col("sentiment")).count().show
+/*
++---------+-----+
+|sentiment|count|
++---------+-----+
+| positive| 8582|
+|  neutral|11117|
+| negative| 7779|
++---------+-----+*/
+//Train the model with LinearSVC 
+// val lsvc_nikhilesh = new LinearSVC()
+//  .setFeaturesCol("cv2-idf-features")
+//  .setLabelCol("label")
+// val pipeline_nikhilesh = new Pipeline()
+//  .setStages(Array(tokenizer_nikhilesh, remover_nikhilesh, ngram_nikhilesh, cv2_nikhilesh, cv2idf_nikhilesh, lsvc_nikhilesh))
+
+
+// val logistic_nikhilesh = new LogisticRegression().setMaxIter(10)
+// .setRegParam(0.3).setElasticNetParam(0.8).setLabelCol("label").setFeaturesCol("cv2-idf-features")
+
+// val MaxIter1: Seq[Int] = Seq(1000)
+// val RegParam1: Seq[Double] = Seq(0.001)
+// val ElasticNetParam1: Seq[Double] = Seq(0.001)
+// val tolerance: Seq[Double] = Seq(1e-6)
+
+// val paramGrid_nikhilesh = new ParamGridBuilder()  
+//   .addGrid(logistic_nikhilesh.regParam, RegParam1)
+//   .addGrid(logistic_nikhilesh.elasticNetParam, ElasticNetParam1)
+//   .addGrid(logistic_nikhilesh.tol, tolerance)
+//   .addGrid(logistic_nikhilesh.maxIter, MaxIter1).build()
+// val pipeline_nikhilesh = new Pipeline()
+ // .setStages(Array(tokenizer_nikhilesh, remover_nikhilesh, ngram_nikhilesh, cv2_nikhilesh, cv2idf_nikhilesh,logistic_nikhilesh))
+
+
+// val dtc_nikhilesh = new DecisionTreeClassifier().setLabelCol("label").setMaxDepth(6).setFeaturesCol("cv2-idf-features")
+// val paramGrid_nikhilesh = new ParamGridBuilder()  
+//   .addGrid(dtc_nikhilesh.maxDepth, Array(4,5,6))
+//   .addGrid(dtc_nikhilesh.maxBins, Array(10, 20)).build()
+// val pipeline_nikhilesh = new Pipeline()
+//  .setStages(Array(tokenizer_nikhilesh, remover_nikhilesh, ngram_nikhilesh, cv2_nikhilesh, cv2idf_nikhilesh,dtc_nikhilesh)) 
+// val trainDF_nikhilesh = df_5_nikhilesh.filter(col("label") === 1 ||col("label") ===2 )
+//  val Array(trainingData, testData) = trainDF_nikhilesh.randomSplit(Array(0.8, 0.2)) 

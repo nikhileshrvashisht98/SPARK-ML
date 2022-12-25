@@ -1,0 +1,208 @@
+spark-shell --master yarn 
+
+
+import org.apache.spark.ml.feature.{VectorAssembler}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{RegressionEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{DoubleType}
+import org.apache.spark.ml.linalg.{Matrix, Vectors}
+import org.apache.spark.ml.stat.Correlation
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.{VectorAssembler, StringIndexer}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{MulticlassClassificationEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{IntegerType, DoubleType}
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.DataTypes._;
+import org.apache.spark.sql.DataFrameStatFunctions;
+import org.apache.spark.ml.param.shared.{HasCollectSubModels, HasParallelism}
+
+/*
+val schema_diabetes_nikhilesh = new StructType()
+.add("Pregnancies",IntegerType,true)
+.add("Glucose",DoubleType,true)
+.add("BloodPressure",DoubleType,true).
+add("SkinThickness",DoubleType,true).
+add("Insulin",DoubleType,true).
+add("BMI",DoubleType,true).
+add("DiabetesPedigreeFunction",DoubleType,true)
+.add("Age",IntegerType,true)
+.add("Outcome",IntegerType,true)
+*/
+
+val data_nikhilesh = spark.read.format("csv").option("inferSchema", "true"). option("header", "true").load("hdfs://10.128.0.19/BigData/diabetes.csv")
+
+data_nikhilesh.drop("_c9","_c10")
+
+data_nikhilesh.na.drop().show(false) 
+
+var df_nikhilesh = data_nikhilesh.drop("_c9","_c10")
+
+df_nikhilesh.filter("Outcome = 0").show(false)
+val outcome_nikhilesh = df_nikhilesh.select("Outcome")
+
+
+
+
+
+// EDA
+// df_nikhilesh.select(count(col("Insulin")).as("Count")).show
+// df_nikhilesh.groupBy(col("Insulin")).count().show
+// df_nikhilesh.stat.corr("Insulin ", "Outcome")
+
+println("Correlation between Pregnancies and Outcome: "+df_nikhilesh.stat.corr("Pregnancies", "Outcome").toString)
+println("Correlation between Insulin and Outcome: "+df_nikhilesh.stat.corr("Insulin", "Outcome").toString)
+println("Correlation between Glucose and Outcome: "+df_nikhilesh.stat.corr("Glucose", "Outcome").toString)
+println("Correlation between BloodPressure and Outcome: "+df_nikhilesh.stat.corr("BloodPressure", "Outcome").toString)
+println("Correlation between SkinThickness and Outcome: "+df_nikhilesh.stat.corr("SkinThickness", "Outcome").toString)
+println("Correlation between BMI and Outcome: "+df_nikhilesh.stat.corr("BMI", "Outcome").toString)
+println("Correlation between DiabetesPedigreeFunction and Outcome: "+df_nikhilesh.stat.corr("DiabetesPedigreeFunction", "Outcome").toString)
+println("Correlation between Age and Outcome: "+df_nikhilesh.stat.corr("Age", "Outcome").toString)
+println("Correlation between Pregnancies and Outcome: "+df_nikhilesh.stat.corr("Pregnancies", "Outcome").toString+"\nCorrelation between Insulin and Outcome: "+df_nikhilesh.stat.corr("Insulin", "Outcome").toString+"\nCorrelation between Glucose and Outcome: "+df_nikhilesh.stat.corr("Glucose", "Outcome").toString+"\nCorrelation between BloodPressure and Outcome: "+df_nikhilesh.stat.corr("BloodPressure", "Outcome").toString+"\nCorrelation between SkinThickness and Outcome: "+df_nikhilesh.stat.corr("SkinThickness", "Outcome").toString+"\nCorrelation between BMI and Outcome: "+df_nikhilesh.stat.corr("BMI", "Outcome").toString+"\nCorrelation between DiabetesPedigreeFunction and Outcome: "+df_nikhilesh.stat.corr("DiabetesPedigreeFunction", "Outcome").toString+"\nCorrelation between Age and Outcome: "+df_nikhilesh.stat.corr("Age", "Outcome").toString)
+
+/*
+Correlation between Pregnancies and Outcome: 0.22189815303398636
+Correlation between Insulin and Outcome: 0.13054795488404794
+Correlation between Glucose and Outcome: 0.4665813983068737
+Correlation between BloodPressure and Outcome: 0.06506835955033274
+Correlation between SkinThickness and Outcome: 0.07475223191831945
+Correlation between BMI and Outcome: 0.2926946626444454
+Correlation between DiabetesPedigreeFunction and Outcome: 0.17384406565296
+Correlation between Age and Outcome: 0.23835598302719757
+
+
+*/
+
+df_nikhilesh = df_nikhilesh.drop("BloodPressure","SkinThickness","Pregnancies")
+
+
+
+/* 
+ran into trouble with data types so had to convert them
+
+df_nikhilesh = df_nikhilesh.withColumn("Pregnancies",col("Pregnancies").cast("int"))
+.withColumn("Glucose",col("Glucose").cast("double"))
+.withColumn("BloodPressure",col("BloodPressure").cast("double"))
+.withColumn("SkinThickness",col("SkinThickness").cast("double"))
+.withColumn("Insulin",col("Insulin").cast("double"))
+.withColumn("BMI",col("BMI").cast("double"))
+.withColumn("DiabetesPedigreeFunction",col("DiabetesPedigreeFunction").cast("double"))
+.withColumn("Age",col("Age").cast("int"))
+.withColumn("Outcome",col("Outcome").cast("double"))
+*/
+
+
+val assembler_nikhilesh = new VectorAssembler().setInputCols(Array("Glucose","BMI","DiabetesPedigreeFunction","Age","Insulin")).setOutputCol("features")
+// val indexer_nikhilesh = new StringIndexer().setInputCol("Outcome").setOutputCol("label")
+
+/*
+val indexer_nikhilesh = new StringIndexer()
+  .setInputCol("Outcome")
+  .setOutputCol("label")
+*/
+val Array(trainingData, testData) = df_nikhilesh.randomSplit(Array(0.65, 0.35), 512)
+
+
+/*
+val randomForestClassifier_nikhilesh = new RandomForestClassifier()
+  .setImpurity("gini")
+  .setMaxDepth(3)
+  .setNumTrees(20)
+   .setFeaturesCol("features")
+ .setLabelCol("label")
+  .setFeatureSubsetStrategy("auto")
+  .setSeed(745)
+val randomForestModel_nikhilesh = randomForestClassifier_nikhilesh.fit(trainingData)
+*/
+
+
+val randomForestModel_nikhilesh = new RandomForestClassifier()
+ .setFeaturesCol("features")
+ .setLabelCol("Outcome")
+ .setSeed(745)
+
+val pipeline_nikhilesh = new Pipeline()
+  .setStages(Array(assembler_nikhilesh, randomForestModel_nikhilesh))
+
+val evaluator_nikhilesh = new MulticlassClassificationEvaluator()
+  .setLabelCol("Outcome")
+  .setPredictionCol("prediction")
+  .setMetricName("accuracy")
+
+val maxDepth = Array(2,3,4,5,6,7)
+val maxBins = Array(32,33,34,35)
+for (depth <- maxDepth)
+  for(bins <- maxBins)
+  {
+
+
+    val paramGrid_nikhilesh = new ParamGridBuilder()  
+      .addGrid(randomForestModel_nikhilesh.maxDepth, Array(depth))
+      .addGrid(randomForestModel_nikhilesh.maxBins, Array(bins))
+      .addGrid(randomForestModel_nikhilesh.impurity, Array("entropy","gini")).build()
+
+    val cross_validator_nikhilesh = new CrossValidator()
+      .setEstimator(pipeline_nikhilesh)
+      .setEvaluator(evaluator_nikhilesh)
+      .setEstimatorParamMaps(paramGrid_nikhilesh)
+      .setNumFolds(4).setCollectSubModels(true)
+
+    val cvModel_nikhilesh = cross_validator_nikhilesh.fit(trainingData)
+    val predictions_nikhilesh = cvModel_nikhilesh.transform(testData)
+    val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+    println("maxDepth ":+depth.toString+" maxBin: "+bins.toString)
+    println("accuracy of the model is :"+(accuracy_nikhilesh*100))
+  }
+
+
+val paramGrid_nikhilesh = new ParamGridBuilder()  
+  .addGrid(randomForestModel_nikhilesh.maxDepth, Array(3,4,6))
+  .addGrid(randomForestModel_nikhilesh.maxBins, Array(32,33,34,35))
+  .addGrid(randomForestModel_nikhilesh.impurity, Array("entropy","gini")).build()
+
+val cross_validator_nikhilesh = new CrossValidator()
+  .setEstimator(pipeline_nikhilesh)
+  .setEvaluator(evaluator_nikhilesh)
+  .setEstimatorParamMaps(paramGrid_nikhilesh)
+  .setNumFolds(4).setCollectSubModels(true)
+
+val cvModel_nikhilesh = cross_validator_nikhilesh.fit(trainingData)
+val predictions_nikhilesh = cvModel_nikhilesh.transform(testData)
+val accuracy_nikhilesh = evaluator_nikhilesh.evaluate(predictions_nikhilesh)
+println("best accuracy of the model is :"+(accuracy_nikhilesh*100))
+// val cvModel_nikhilesh_check_subModels = cross_validator_nikhilesh.fit(trainingData)
+// val subModels_nikhilesh = cvModel_nikhilesh_check_subModels.subModels
+
+// for(models <- subModels_nikhilesh)
+// for(s <- models) {
+// val each_model = s.transform(testData)
+// val accuracy_nikhilesh_subModel = evaluator_nikhilesh.evaluate(each_model)
+// println("accuracy of the model is :"+(accuracy_nikhilesh_subModel*100))
+// }
+// val check_subModels_nikhilesh = subModels_nikhilesh(0)(0).transform(testData)
+// val accuracy_nikhilesh_subModel = evaluator_nikhilesh.evaluate(check_subModels_nikhilesh)
+// println("accuracy of the model is :"+(accuracy_nikhilesh_subModel*100))
+/*
+val cvModel_nikhilesh_check_subModels = cross_validator_nikhilesh.fit(trainingData)
+val subModels_nikhilesh = cvModel_nikhilesh_check_subModels.subModels
+val check_subModels_nikhilesh = subModels_nikhilesh(0)(1).transform(trainingData)
+val accuracy_nikhilesh_subModel_1 = evaluator_nikhilesh.evaluate(check_subModels_nikhilesh)val cvModel_nikhilesh_check_subModels = cross_validator_nikhilesh.fit(trainingData)
+val subModels_nikhilesh = cvModel_nikhilesh_check_subModels.subModels
+val check_subModels_nikhilesh = subModels_nikhilesh(0)(1).transform(trainingData)
+val accuracy_nikhilesh_subModel_1 = evaluator_nikhilesh.evaluate(check_subModels_nikhilesh)
+*/
+// print(table.map(_.mkString).mkString("\n"))
+
+
